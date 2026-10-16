@@ -60,6 +60,9 @@ var result_btn_inner_box_padding: dvui.Rect = dvui.Rect.all(0);
 var result_scroll_info = dvui.ScrollInfo{ .horizontal = .auto };
 var result_btn_scroll_info = dvui.ScrollInfo{ .horizontal = .none };
 
+var searching = false;
+var worker: ?std.Thread = null;
+
 // Runs before the first frame, after backend and dvui.Window.init()
 // - runs between win.begin()/win.end()
 pub fn appInit(win: *dvui.Window) !void {
@@ -69,6 +72,12 @@ pub fn appInit(win: *dvui.Window) !void {
     // try dvui.addFont("NOTO", @embedFile("../src/fonts/NotoSansKR-Regular.ttf"), null);
 
     try dvui.addFont("NOTO", @embedFile("../src/assets/fonts/NotoSerifSC-VariableFont_wght.ttf"), null);
+
+    // Initialize search result maps
+    result_map = .{};
+    try result_map.ensureUnusedCapacity(gpa, 256);
+    expander_collapsed_map = .{};
+    try expander_collapsed_map.ensureUnusedCapacity(gpa, 256);
 
     // If you want a custom theme use something like this:
     // const theme = switch (win.backend.preferredColorScheme() orelse .light) {
@@ -193,7 +202,9 @@ pub fn content() !?dvui.App.Result {
 
                 // 目录路径列表
                 {
-                    directory_scroll_info.scrollToOffset(.vertical, btn_scroll_info.offset(.vertical));
+                    // directory_scroll_info.scrollToOffset(.vertical, btn_scroll_info.offset(.vertical));
+
+                    // directory_scroll_info.viewport.h = btn_scroll_info.offset(.vertical);
 
                     var directory_list = dvui.scrollArea(@src(), .{ .scroll_info = &directory_scroll_info, .vertical_bar = .hide, .horizontal_bar = .auto_overlay }, .{
                         .expand = .both,
@@ -229,7 +240,7 @@ pub fn content() !?dvui.App.Result {
 
                 // 按钮列表
                 {
-                    btn_scroll_info.scrollToOffset(.vertical, directory_scroll_info.offset(.vertical));
+                    // btn_scroll_info.scrollToOffset(.vertical, directory_scroll_info.offset(.vertical));
 
                     var btn_list = dvui.scrollArea(@src(), .{ .scroll_info = &btn_scroll_info, .vertical_bar = .auto_overlay }, .{ .expand = .vertical, .style = .content, .max_size_content = .size(.{ .w = 44 }), .min_size_content = .{ .w = 44 } });
                     defer btn_list.deinit();
@@ -283,27 +294,26 @@ pub fn content() !?dvui.App.Result {
             defer opt_box.deinit();
 
             if (dvui.button(@src(), "Search", .{ .draw_focus = false }, .{})) {
-                result_map.clearRetainingCapacity();
-
                 const keyword: []const u8 = std.mem.sliceTo(&keyword_buffer, 0);
 
                 if (keyword.len == 0) return null;
 
                 const directory_paths = dvui.dataGetSlice(dvui.currentWindow(), directory_list_id, "directories", [][]const u8) orelse @as([][]const u8, &.{});
 
-                for (directory_paths) |directory_path| {
-                    const result = try search.travers(gpa, dvui.io, keyword, directory_path);
+                if (searching == false) {
+                    searching = true;
+                    worker = try std.Thread.spawn(.{}, search.travers, .{ gpa, dvui.io, keyword, directory_paths, &result_map });
+                } else {
+                    // Already searching, ignore
+                }
+            }
 
-                    // defer {
-                    //     // for (result.items) |item| {
-                    //     //     gpa.free(item.path); // ✅ 释放每个复制的路径
-                    //     // }
-                    //     result.deinit(gpa); // 释放列表本身
-                    // }
-
-                    if (result.items.len > 0) {
-                        try result_map.put(gpa, directory_path, result.items);
-                    }
+            // Wait for background search to complete
+            if (searching) {
+                if (worker) |w| {
+                    w.join();
+                    worker = null;
+                    searching = false;
                 }
             }
         }
@@ -327,9 +337,9 @@ pub fn content() !?dvui.App.Result {
 
         // 结果路径列表
         {
-            result_scroll_info.scrollToOffset(.vertical, result_btn_scroll_info.offset(.vertical));
+            // result_scroll_info.scrollToOffset(.vertical, result_btn_scroll_info.offset(.vertical));
 
-            var result_list = dvui.scrollArea(@src(), .{ .scroll_info = &result_scroll_info, .vertical_bar = .hide, .horizontal_bar = .auto_overlay }, .{
+            var result_list = dvui.scrollArea(@src(), .{ .scroll_info = &result_scroll_info, .vertical_bar = .auto_overlay, .horizontal_bar = .auto_overlay }, .{
                 .expand = .both,
                 .style = .content,
                 .max_size_content = .size(.{ .h = 200 }),
@@ -351,12 +361,10 @@ pub fn content() !?dvui.App.Result {
 
                 if (dvui.expander(@src(), item.key, .{ .default_expanded = true }, .{ .id_extra = index, .min_size_content = .{ .h = 20 }, .max_size_content = .size(.{ .w = inner_box.data().rect.w, .h = 20 }), .margin = .all(0), .padding = .rect(0, 0, 0, 4), .font = .{ .size = 12 } })) {
                     for (0..item.value.len) |inner_index| {
-                        const clock = std.Io.Clock.awake;
-                        const ts = std.Io.Timestamp.now(dvui.io, clock).toNanoseconds();
-                        const ts_number: usize = @intCast(ts);
+                        const item_id = index * 10000 + inner_index;
 
                         var tl = dvui.textLayout(@src(), .{ .break_lines = false }, .{
-                            .id_extra = ts_number,
+                            .id_extra = item_id,
                             .max_size_content = .size(.{ .w = 1000, .h = 20 }),
                             .min_size_content = .{ .w = inner_box.data().rect.w, .h = 20 },
                             .margin = .all(0),
@@ -373,89 +381,89 @@ pub fn content() !?dvui.App.Result {
         }
 
         // 按钮列表
-        {
-            result_btn_scroll_info.scrollToOffset(.vertical, result_scroll_info.offset(.vertical));
-
-            var btn_list = dvui.scrollArea(@src(), .{ .scroll_info = &result_btn_scroll_info, .vertical_bar = .auto_overlay }, .{ .expand = .vertical, .style = .content, .max_size_content = .size(.{ .w = 100 }), .min_size_content = .{ .w = 100 } });
-            defer btn_list.deinit();
-
-            // std.debug.print("-- {d}\n", .{result_inner_box_h});
-
-            var inner_box = dvui.box(@src(), .{ .dir = .vertical }, .{ .padding = result_btn_inner_box_padding, .max_size_content = .size(.{ .w = 100, .h = result_inner_box_h }), .min_size_content = .{ .h = result_inner_box_h } });
-            defer inner_box.deinit();
-
-            const len = result_map.entries.len;
-
-            for (0..len) |index| {
-                const item = result_map.entries.slice().get(index);
-
-                _ = dvui.spacer(@src(), .{
-                    .min_size_content = .{ .h = 20 },
-                    .max_size_content = .size(.{ .h = 20 }),
-                    .id_extra = index,
-                });
-
-                const collapsed = expander_collapsed_map.get(index) orelse false;
-
-                if (collapsed == false) {
-                    for (0..item.value.len) |inner_index| {
-                        // const i_number = (len + item.value.len) * (index + 1) + inner_index;
-
-                        const i_number = len + item.value.len + item.value.len * (index + 1) + inner_index;
-
-                        const icon_type = switch (item.value[inner_index].kind) {
-                            .directory => .{ "folder", dvui.entypo.folder },
-                            .file => .{ "documents", dvui.entypo.documents },
-                            else => .{ "emoji_neutral", dvui.entypo.emoji_neutral },
-                        };
-
-                        var h_box = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i_number, .min_size_content = .{ .w = 100, .h = 28 }, .max_size_content = .size(.{ .w = 100, .h = 28 }), .padding = .rect(0, 1, 0, 1) });
-                        defer h_box.deinit();
-
-                        {
-                            dvui.icon(@src(), icon_type.@"0", icon_type.@"1", .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 12, 4), .gravity_y = 0.5 });
-                        }
-
-                        {
-                            if (dvui.buttonIcon(@src(), "copy", dvui.entypo.copy, .{}, .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 12, 4), .corners = .all(12) })) {
-                                std.debug.print("{s}\n", .{"点击了拷贝按钮"});
-                                dvui.clipboardTextSet(item.value[inner_index].path);
-                            }
-                        }
-
-                        {
-                            if (dvui.buttonIcon(@src(), "arrow_right", dvui.entypo.arrow_right, .{}, .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 0, 4), .corners = .all(12) })) {
-                                std.debug.print("{s}\n", .{"点击了打开按钮"});
-
-                                // 如果是文件则使用文件所在的目录路径
-                                const directory_path = if (std.mem.cutScalarLast(u8, item.value[inner_index].path, '/')) |v| v.@"0" else "";
-
-                                const absolute_path = try gpa.alloc(u8, item.key.len + directory_path.len);
-
-                                @memcpy(absolute_path[0..item.key.len], item.key);
-                                @memcpy(absolute_path[item.key.len..], directory_path);
-
-                                const current_target = try std.zig.system.resolveTargetQuery(dvui.io, try std.Target.Query.parse(.{}));
-
-                                var cmd: []const u8 = undefined;
-                                if (current_target.os.tag.isDarwin()) {
-                                    cmd = "/usr/bin/open";
-                                } else if (current_target.os.tag.isBSD()) {
-                                    cmd = "xdg-open";
-                                } else if (std.mem.eql(u8, current_target.os.tag.exeFileExt(std.Target.Cpu.Arch.x86_64), ".exe")) {
-                                    cmd = "C:\\Windows\\explorer.exe";
-                                } else {
-                                    cmd = "";
-                                }
-
-                                var child = try std.process.spawn(dvui.io, .{ .argv = &.{ cmd, absolute_path } });
-                                _ = try child.wait(dvui.io);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //         {
+        //             // result_btn_scroll_info.scrollToOffset(.vertical, result_scroll_info.offset(.vertical));
+        //
+        //             var btn_list = dvui.scrollArea(@src(), .{ .scroll_info = &result_btn_scroll_info, .vertical_bar = .auto_overlay }, .{ .expand = .vertical, .style = .content, .max_size_content = .size(.{ .w = 100 }), .min_size_content = .{ .w = 100 } });
+        //             defer btn_list.deinit();
+        //
+        //             // std.debug.print("-- {d}\n", .{result_inner_box_h});
+        //
+        //             var inner_box = dvui.box(@src(), .{ .dir = .vertical }, .{ .padding = result_btn_inner_box_padding, .max_size_content = .size(.{ .w = 100, .h = result_inner_box_h }), .min_size_content = .{ .h = result_inner_box_h } });
+        //             defer inner_box.deinit();
+        //
+        //             const len = result_map.entries.len;
+        //
+        //             for (0..len) |index| {
+        //                 const item = result_map.entries.slice().get(index);
+        //
+        //                 _ = dvui.spacer(@src(), .{
+        //                     .min_size_content = .{ .h = 20 },
+        //                     .max_size_content = .size(.{ .h = 20 }),
+        //                     .id_extra = index,
+        //                 });
+        //
+        //                 const collapsed = expander_collapsed_map.get(index) orelse false;
+        //
+        //                 if (collapsed == false) {
+        //                     for (0..item.value.len) |inner_index| {
+        //                         // const i_number = (len + item.value.len) * (index + 1) + inner_index;
+        //
+        //                         const i_number = len + item.value.len + item.value.len * (index + 1) + inner_index;
+        //
+        //                         const icon_type = switch (item.value[inner_index].kind) {
+        //                             .directory => .{ "folder", dvui.entypo.folder },
+        //                             .file => .{ "documents", dvui.entypo.documents },
+        //                             else => .{ "emoji_neutral", dvui.entypo.emoji_neutral },
+        //                         };
+        //
+        //                         var h_box = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i_number, .min_size_content = .{ .w = 100, .h = 28 }, .max_size_content = .size(.{ .w = 100, .h = 28 }), .padding = .rect(0, 1, 0, 1) });
+        //                         defer h_box.deinit();
+        //
+        //                         {
+        //                             dvui.icon(@src(), icon_type.@"0", icon_type.@"1", .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 12, 4), .gravity_y = 0.5 });
+        //                         }
+        //
+        //                         {
+        //                             if (dvui.buttonIcon(@src(), "copy", dvui.entypo.copy, .{}, .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 12, 4), .corners = .all(12) })) {
+        //                                 std.debug.print("{s}\n", .{"点击了拷贝按钮"});
+        //                                 dvui.clipboardTextSet(item.value[inner_index].path);
+        //                             }
+        //                         }
+        //
+        //                         {
+        //                             if (dvui.buttonIcon(@src(), "arrow_right", dvui.entypo.arrow_right, .{}, .{}, .{ .id_extra = i_number, .max_size_content = .size(.{ .w = 12, .h = 12 }), .min_size_content = .{ .w = 12, .h = 12 }, .margin = .rect(0, 4, 0, 4), .corners = .all(12) })) {
+        //                                 std.debug.print("{s}\n", .{"点击了打开按钮"});
+        //
+        //                                 // 如果是文件则使用文件所在的目录路径
+        //                                 const directory_path = if (std.mem.cutScalarLast(u8, item.value[inner_index].path, '/')) |v| v.@"0" else "";
+        //
+        //                                 const absolute_path = try gpa.alloc(u8, item.key.len + directory_path.len);
+        //
+        //                                 @memcpy(absolute_path[0..item.key.len], item.key);
+        //                                 @memcpy(absolute_path[item.key.len..], directory_path);
+        //
+        //                                 const current_target = try std.zig.system.resolveTargetQuery(dvui.io, try std.Target.Query.parse(.{}));
+        //
+        //                                 var cmd: []const u8 = undefined;
+        //                                 if (current_target.os.tag.isDarwin()) {
+        //                                     cmd = "/usr/bin/open";
+        //                                 } else if (current_target.os.tag.isBSD()) {
+        //                                     cmd = "xdg-open";
+        //                                 } else if (std.mem.eql(u8, current_target.os.tag.exeFileExt(std.Target.Cpu.Arch.x86_64), ".exe")) {
+        //                                     cmd = "C:\\Windows\\explorer.exe";
+        //                                 } else {
+        //                                     cmd = "";
+        //                                 }
+        //
+        //                                 var child = try std.process.spawn(dvui.io, .{ .argv = &.{ cmd, absolute_path } });
+        //                                 _ = try child.wait(dvui.io);
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
     }
 
     return null;

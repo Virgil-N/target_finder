@@ -1,7 +1,4 @@
-//! 这是一个搜索包含提供字符串的文件和文件夹的工具，区分大小写
-//! 编译命令: zig build --prefix ./build/search_tool  -Doptimize=ReleaseSafe
-//! Example 1: zig run src/main.zig -- .zig /Users/virgil/Workspace/Personal/Zig/zig_test
-//! Example 2: build/search_tool/bin/zig_test .zig /Users/virgil/Workspace/Personal/Zig/zig_test
+//! 这是一个工具包，提供根据关键词和一组目录路径找出目录中文件路径和名称中包含关键词的方法
 
 const std = @import("std");
 
@@ -50,86 +47,32 @@ pub fn search(init: std.process.Init) !void {
 }
 
 /// 遍历指定的目录，返回路径匹配到搜索文本的自定义实体动态数组
-pub fn travers(gpa: std.mem.Allocator, io: std.Io, text: []const u8, dir_path: []const u8) !std.ArrayList(Matched) {
-    var matched_list = std.ArrayList(Matched).empty;
-    defer {
-        // for (matched_list.items) |item| {
-        //     gpa.free(item.path);
-        //     // gpa.free(item.kind);
-        // }
-        // matched_list.deinit(gpa);
-    }
+pub fn travers(gpa: std.mem.Allocator, io: std.Io, text: []const u8, dir_paths: [][]const u8, data_map: *std.StringArrayHashMapUnmanaged([]Matched)) !void {
+    for (dir_paths) |dir_path| {
+        var matched_list = std.ArrayList(Matched).empty;
+        const root_dir = try std.Io.Dir.openDirAbsolute(io, dir_path, .{ .iterate = true });
+        defer root_dir.close(io);
 
-    const root_dir = try std.Io.Dir.openDirAbsolute(io, dir_path, .{ .iterate = true });
-    defer root_dir.close(io);
+        var walker = try root_dir.walk(gpa);
+        defer walker.deinit();
 
-    var walker = try root_dir.walk(gpa);
-    defer walker.deinit();
+        while (true) {
+            if (try walker.next(io)) |item| {
+                const match = std.mem.find(u8, item.basename, text);
 
-    while (true) {
-        if (try walker.next(io)) |item| {
-            const match = std.mem.find(u8, item.basename, text);
-
-            if (match) |_| {
-                const item_path = try gpa.dupe(u8, item.path);
-                // const item_path = item.path;
-                const item_kind = item.kind;
-                try matched_list.append(gpa, Matched{ .path = item_path, .kind = item_kind });
+                if (match) |_| {
+                    const item_path = try gpa.dupe(u8, item.path);
+                    // const item_path = item.path;
+                    const item_kind = item.kind;
+                    try matched_list.append(gpa, Matched{ .path = item_path, .kind = item_kind });
+                }
+            } else {
+                break;
             }
-        } else {
-            break;
+        }
+
+        if (matched_list.items.len > 0) {
+            try data_map.put(gpa, dir_path, matched_list.items);
         }
     }
-
-    return matched_list;
 }
-
-// /// 遍历指定的目录，返回路径匹配到搜索文本的自定义实体动态数组
-// pub fn travers(gpa: std.mem.Allocator, io: std.Io, text: []const u8, dir_path: []const u8) !std.ArrayList([]const u8) {
-//     var list = std.ArrayList([]const u8).empty;
-//     var matched_list = std.ArrayList(Matched).empty;
-//     defer {
-//         for (matched_list.items) |item| {
-//             gpa.free(item.path);
-//             gpa.free(item.kind);
-//         }
-//         matched_list.deinit(gpa);
-//     }
-//
-//     const root_dir = try std.Io.Dir.openDirAbsolute(io, dir_path, .{ .iterate = true });
-//     defer root_dir.close(io);
-//
-//     var walker = try root_dir.walk(gpa);
-//     defer walker.deinit();
-//
-//     var len: usize = 0;
-//
-//     while (true) {
-//         if (try walker.next(io)) |item| {
-//             const match = std.mem.find(u8, item.basename, text);
-//
-//             if (match) |index| {
-//                 _ = index;
-//                 const exact_len = item.path.len + @tagName(item.kind).len + 6;
-//                 if (len < exact_len) {
-//                     len = exact_len;
-//                 }
-//
-//                 const item_path = try gpa.dupe(u8, item.path);
-//                 const item_kind = try gpa.dupe(u8, @tagName(item.kind));
-//                 try matched_list.append(gpa, Matched{ .path = item_path, .kind = item_kind });
-//             }
-//         } else {
-//             break;
-//         }
-//     }
-//
-//     for (matched_list.items) |item| {
-//         const total_str = try gpa.alloc(u8, len);
-//         @memcpy(total_str[0..item.path.len], item.path);
-//         @memset(total_str[item.path.len .. len - item.kind.len], ' ');
-//         @memcpy(total_str[len - item.kind.len ..], item.kind);
-//         try list.append(gpa, total_str);
-//     }
-//     return list;
-// }
