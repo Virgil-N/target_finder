@@ -225,16 +225,21 @@ pub fn content() !?dvui.App.Result {
                     const directory_paths = dvui.dataGetSlice(dvui.currentWindow(), directory_list_id, "directories", [][]const u8) orelse @as([][]const u8, &.{});
 
                     for (directory_paths, 0..) |item, index| {
-                        var tl = dvui.textLayout(@src(), .{ .break_lines = false }, .{
-                            .expand = .vertical,
-                            .id_extra = index,
-                            .max_size_content = .size(.{ .w = 1000, .h = 20 }),
-                            .min_size_content = .{ .w = inner_box.data().rect.w, .h = 20 },
-                            .margin = .all(0),
-                            .padding = .rect(0, 4, 0, 4),
-                        });
-                        defer tl.deinit();
-                        tl.format("{d} - {s}\n", .{ index, item }, .{ .gravity_y = 0.5, .font = .{ .size = 10 } });
+                        var cache = dvui.cacheSize(@src(), .{}, .{ .id_extra = index });
+                        defer cache.deinit();
+
+                        if (cache.uncached()) {
+                            var tl = dvui.textLayout(@src(), .{ .break_lines = false }, .{
+                                .expand = .vertical,
+                                .id_extra = index,
+                                .max_size_content = .size(.{ .w = 1000, .h = 20 }),
+                                .min_size_content = .{ .w = inner_box.data().rect.w, .h = 20 },
+                                .margin = .all(0),
+                                .padding = .rect(0, 4, 0, 4),
+                            });
+                            defer tl.deinit();
+                            tl.format("{d} - {s}\n", .{ index, item }, .{ .gravity_y = 0.5, .font = .{ .size = 10 } });
+                        }
                     }
                 }
 
@@ -363,15 +368,20 @@ pub fn content() !?dvui.App.Result {
                     for (0..item.value.len) |inner_index| {
                         const item_id = index * 10000 + inner_index;
 
-                        var tl = dvui.textLayout(@src(), .{ .break_lines = false }, .{
-                            .id_extra = item_id,
-                            .max_size_content = .size(.{ .w = 1000, .h = 20 }),
-                            .min_size_content = .{ .w = inner_box.data().rect.w, .h = 20 },
-                            .margin = .all(0),
-                            .padding = .rect(0, 4, 0, 4),
-                        });
-                        defer tl.deinit();
-                        tl.format("{d} - {s}\n", .{ inner_index, item.value[inner_index].path }, .{ .gravity_y = 0.5, .font = .{ .size = 10 } });
+                        var cache = dvui.cacheSize(@src(), .{}, .{ .id_extra = item_id });
+                        defer cache.deinit();
+
+                        if (cache.uncached()) {
+                            var tl = dvui.textLayout(@src(), .{ .break_lines = false }, .{
+                                .id_extra = item_id,
+                                .max_size_content = .size(.{ .w = 1000, .h = 20 }),
+                                .min_size_content = .{ .w = inner_box.data().rect.w, .h = 20 },
+                                .margin = .all(0),
+                                .padding = .rect(0, 4, 0, 4),
+                            });
+                            defer tl.deinit();
+                            tl.format("{d} - {s}\n", .{ inner_index, item.value[inner_index].path }, .{ .gravity_y = 0.5, .font = .{ .size = 10 } });
+                        }
                     }
                     try expander_collapsed_map.put(gpa, index, false);
                 } else {
