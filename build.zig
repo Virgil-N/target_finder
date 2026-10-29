@@ -34,9 +34,9 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step(app_name, "Run " ++ app_name);
     run_step.dependOn(&run_cmd.step);
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    // if (b.args) |args| {
+    //     run_cmd.addArgs(args);
+    // }
 
     const test_cmd = b.addRunArtifact(b.addTest(.{ .root_module = mod, .name = "test-" ++ app_name }));
     const test_step = b.step("test", "Test " ++ app_name);
