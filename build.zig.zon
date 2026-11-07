@@ -2,7 +2,7 @@
     .name = .target_finder,
     .version = "0.0.1",
     .fingerprint = 0xc0e1d3561408be06,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .dvui = .{
             .url = "git+https://github.com/david-vanderson/dvui?ref=main#a41e502fb0b4566aa68e06ee9bd08acfd84848b7",
