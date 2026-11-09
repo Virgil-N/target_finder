@@ -198,16 +198,18 @@ pub fn content() !?dvui.App.Result {
                 }, .{ .expand = .both, .border = if (directories.items.len > 0) .all(1) else .all(0), .margin = .rect(4, if (directories.items.len > 0) 4 else 0, 0, 0), .padding = if (directories.items.len > 0) .rect(2, 0, 2, 0) else .rect(0, 4, 0, 0), .corners = .all(3) });
                 defer directory_list_box.deinit();
 
-                var directory_list = dvui.scrollArea(@src(), .{ .scroll_info = &directory_scroll_info, .vertical_bar = .hide, .horizontal_bar = .auto_overlay }, .{ .expand = .both, .max_size_content = .height(200) });
-                defer directory_list.deinit();
-
-                directory_list_id = directory_list.data().id;
+                directory_list_id = directory_list_box.data().id;
                 dvui.dataSetSlice(dvui.currentWindow(), directory_list_id, "directories", directories.items);
 
                 const directory_paths = dvui.dataGetSlice(dvui.currentWindow(), directory_list_id, "directories", [][]const u8) orelse @as([][]const u8, &.{});
 
-                var grid = dvui.grid(@src(), .{}, .{ .expand = .both, .border = .all(0) });
+                var grid = dvui.grid(@src(), .{}, .{ .expand = .both, .max_size_content = .height(60), .border = .all(0) });
                 defer grid.deinit();
+
+                //                 grid.col_resizable = dvui.currentWindow().arena().alloc(bool, 2) catch &.{};
+                //
+                //                 grid.col_resizable[0] = false;
+                //                 grid.col_resizable[1] = false;
 
                 for (directory_paths, 0..) |item, row| {
                     {
@@ -222,10 +224,10 @@ pub fn content() !?dvui.App.Result {
                         }
                     }
                     {
-                        var cell = grid.cell(.{ .row = row, .col = 1 }, .{
+                        var cell = grid.cell(.{ .row = row, .col = 1, .col_resizable = false }, .{
                             .expand = .none,
-                            .min_size_content = .width(14),
-                            .max_size_content = .width(14),
+                            .min_size_content = .width(28),
+                            .max_size_content = .width(28),
                         });
                         defer cell.deinit();
 
@@ -235,7 +237,7 @@ pub fn content() !?dvui.App.Result {
                         defer cache.deinit();
 
                         if (cache.uncached()) {
-                            if (dvui.buttonIcon(@src(), "minus", dvui.entypo.minus, .{ .draw_focus = false }, .{}, .{ .id_extra = row, .min_size_content = .{ .w = 14, .h = 14 }, .max_size_content = .{ .w = 14, .h = 14 }, .corners = .round(14), .gravity_x = 0.5, .gravity_y = 0.5 })) {
+                            if (dvui.buttonIcon(@src(), "minus", dvui.entypo.minus, .{ .draw_focus = false }, .{}, .{ .id_extra = row, .min_size_content = .{ .w = 14, .h = 14 }, .max_size_content = .{ .w = 14, .h = 14 }, .corners = .round(14), .gravity_x = 0.5, .gravity_y = 0.5, .tab_index = 0 })) {
                                 std.debug.print("{s}\n", .{"点击了移除按钮"});
                                 _ = directories.orderedRemove(row);
 
@@ -315,32 +317,18 @@ pub fn content() !?dvui.App.Result {
         var result_list = dvui.scrollArea(@src(), .{ .scroll_info = &result_scroll_info, .vertical_bar = .auto_overlay, .horizontal_bar = .auto_overlay }, .{
             .expand = .both,
             .style = .content,
-            .max_size_content = .size(.{ .h = 200 }),
+            .max_size_content = .height(200),
         });
         defer result_list.deinit();
 
         const len = result_map.entries.len;
 
         for (0..len) |index| {
-
-            //             {
-            //                 const cell = grid.colHeader(index, .{});
-            //                 defer cell.deinit();
-            //
-            //                 dvui.label(@src(), "Path", .{}, .{ .gravity_x = 0.5 });
-            //             }
-            //
-            //             {
-            //                 const cell = grid.colHeader(index, .{});
-            //                 defer cell.deinit();
-            //
-            //                 dvui.label(@src(), "Action", .{}, .{ .gravity_x = 0.5 });
-            //             }
-
             const item = result_map.entries.slice().get(index);
 
+            // .default_expanded = false 会导致未内容渲染
             if (dvui.expander(@src(), item.key, .{ .default_expanded = true }, .{ .id_extra = index, .expand = .horizontal, .font = .{ .size = 12 } })) {
-                var grid = dvui.grid(@src(), .{}, .{ .border = .all(0), .expand = .both, .id_extra = index });
+                var grid = dvui.grid(@src(), .{}, .{ .border = .all(0), .expand = .horizontal, .id_extra = index });
                 defer grid.deinit();
 
                 for (0..item.value.len) |row| {
@@ -366,7 +354,7 @@ pub fn content() !?dvui.App.Result {
                         }
                     }
                     {
-                        var cell = grid.cell(.{ .row = row, .col = 1 }, .{ .expand = .none, .padding = .{ .x = 12, .w = 12 } });
+                        var cell = grid.cell(.{ .row = row, .col = 1, .col_resizable = false }, .{ .padding = .{ .x = 12, .w = 12 } });
                         defer cell.deinit();
 
                         var cache = dvui.cacheSize(@src(), .{}, .{ .id_extra = row, .expand = .both, .gravity_y = 0.5 });
@@ -383,7 +371,7 @@ pub fn content() !?dvui.App.Result {
                         }
                     }
                     {
-                        var cell = grid.cell(.{ .row = row, .col = 2 }, .{ .expand = .none, .padding = .{ .x = 4, .w = 4 } });
+                        var cell = grid.cell(.{ .row = row, .col = 2, .col_resizable = false }, .{ .padding = .{ .x = 4, .w = 4 } });
                         defer cell.deinit();
 
                         var cache = dvui.cacheSize(@src(), .{}, .{ .id_extra = row, .expand = .both, .gravity_y = 0.5 });
@@ -406,7 +394,7 @@ pub fn content() !?dvui.App.Result {
                         }
                     }
                     {
-                        var cell = grid.cell(.{ .row = row, .col = 3 }, .{ .padding = .{ .x = 4, .w = 12 } });
+                        var cell = grid.cell(.{ .row = row, .col = 3, .col_resizable = false }, .{ .padding = .{ .x = 4, .w = 12 } });
                         defer cell.deinit();
 
                         var cache = dvui.cacheSize(@src(), .{}, .{ .id_extra = row, .expand = .both, .gravity_y = 0.5 });
